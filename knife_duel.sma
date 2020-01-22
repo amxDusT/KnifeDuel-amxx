@@ -4,7 +4,6 @@
         - sTyLa: took the duel model from her server.        
         - me: took part of the challenge code from my rush duel plugin.
 */
-
 #include < amxmodx >
 #include < amxmisc >
 #include < fakemeta >
@@ -15,6 +14,10 @@
 #define set_bit(%1,%2)      (%1 |= (1<<(%2&31)))
 #define clear_bit(%1,%2)    (%1 &= ~(1<<(%2&31)))
 #define check_bit(%1,%2)    (%1 & (1<<(%2&31)))
+
+#if AMXX_VERSION_NUM < 183
+    set_fail_state( "Plugin requires 1.8.3 or higher." );
+#endif
 
 // --------- Editable Stuff ---------
 
@@ -49,16 +52,16 @@ new const szStopCmds[][] =
 #define pev_rtotal          pev_iuser3
 #define pev_rfake           pev_iuser4
 
-#define MAX_DISTANCE        550.0
-#define MIN_DISTANCE        250.0
+new const Float:MAX_DISTANCE  =   550.0;
+new const Float:MIN_DISTANCE  =   250.0;
 
-#define MAX_LONGTIME        200.0
-#define MIN_LONGTIME        30.0
+new const Float:MAX_LONGTIME  =   200.0;
+new const Float:MIN_LONGTIME  =   30.0;
 
-#define MAX_SMALLTIME        60.0
-#define MIN_SMALLTIME        3.0
+new const Float:MAX_SMALLTIME =   60.0;
+new const Float:MIN_SMALLTIME =   3.0;
 
-new const VERSION[] = "1.0.1";
+new const VERSION[] = "1.0.2";
 
 new const DisableAccess = ( 1 << 26 );
 const iWalls = 5;
@@ -184,17 +187,18 @@ public plugin_init()
     for( new i; i < sizeof szStopCmds; i++ )
         register_clcmd( szStopCmds[ i ], "CmdStopDuel" );
 
-    bind_pcvar_float( create_cvar( "kd_health_slash", "1"  ), Float:pHealth[ SLASH ] );
-    bind_pcvar_float( create_cvar( "kd_health_stab",  "35" ), Float:pHealth[ STAB ]  );
-    bind_pcvar_float( create_cvar( "kd_health_both",  "0" ), Float:pHealth[ BOTH ]  );
-    bind_pcvar_float( create_cvar( "kd_players_distance", "500" ), pDistance );
-    bind_pcvar_float( create_cvar( "kd_max_round_time", "10", .description="0 to disable. After this time passed on one round, round will restart." ), pSmallTime );
-    bind_pcvar_float( create_cvar( "kd_max_duel_time", "100", .description="0 to disable. After this time passed on the duel, duel will be stopped." ), pLongTime );
-    bind_pcvar_float( create_cvar( "kd_cooldown", "10" ), pNextDuel );
+    bind_pcvar_float( create_cvar( "kd_health_slash", "1" , _, _, true, 0.0, true, 100.0 ), Float:pHealth[ SLASH ] );
+    bind_pcvar_float( create_cvar( "kd_health_stab",  "35", _, _, true, 0.0, true, 100.0 ), Float:pHealth[ STAB ]  );
+    bind_pcvar_float( create_cvar( "kd_health_both",  "0" , _, _, true, 0.0, true, 100.0 ), Float:pHealth[ BOTH ]  );
+    bind_pcvar_float( create_cvar( "kd_players_distance", "500", _, _, true, MIN_DISTANCE, true, MAX_DISTANCE ), pDistance );
+    bind_pcvar_float( create_cvar( "kd_max_round_time", "10", _, "0 to disable. After this time passed on one round, round will restart.",  true, 0.0, true, MAX_SMALLTIME ), pSmallTime );
+    bind_pcvar_float( create_cvar( "kd_max_duel_time", "100", _, "0 to disable. After this time passed on the duel, duel will be stopped.", true, 0.0, true, MAX_LONGTIME  ), pLongTime  );
+    bind_pcvar_float( create_cvar( "kd_cooldown", "10", _, _, true, 0.0 ), pNextDuel );
 
-    bind_pcvar_num( create_cvar( "kd_save_health", "1" ), pSaveHealth );
-    bind_pcvar_num( create_cvar( "kd_save_pos", "1" ), pSavePos );
-    bind_pcvar_num( create_cvar( "kd_rounds", "10" ), pRounds );
+    
+    bind_pcvar_num( create_cvar( "kd_save_health", "1", _, _, true, 0.0, true, 1.0 ), pSaveHealth );
+    bind_pcvar_num( create_cvar( "kd_save_pos", "1", _, _, true, 0.0, true, 1.0 ), pSavePos );
+    bind_pcvar_num( create_cvar( "kd_rounds", "10", _, _, true, 1.0 ), pRounds );
     /*
         description:
             - 0: both
@@ -202,13 +206,13 @@ public plugin_init()
             - 2: stab / m2
             - 3: allow player to choose
     */
-    bind_pcvar_num( create_cvar( "kd_attack_type", "0", .description="more info at github.com/amxDusT/KnifeDuel-amxx" ), pAttackType );
+    bind_pcvar_num( create_cvar( "kd_attack_type", "0", _, "more info at github.com/amxDusT/KnifeDuel-amxx", true, 0.0, true, 3.0 ), pAttackType );
     /*
         if kd_max_round_time expires or duel player gets killed not by enemy the round is not counted, but it gets added to the
         not counted round ("fake rounds").
         Once fake rounds reaches kd_fake_rounds cvar, the duel is interrupted. 
     */
-    bind_pcvar_num( create_cvar( "kd_fake_rounds", "5", .description="more info at github.com/amxDusT/KnifeDuel-amxx" ), pFakeRounds );
+    bind_pcvar_num( create_cvar( "kd_fake_rounds", "5", _, "more info at github.com/amxDusT/KnifeDuel-amxx", true, 0.0 ), pFakeRounds );
     /*
         description:
             - 0: revives who won the round. In case of draw, both revive.
@@ -216,7 +220,7 @@ public plugin_init()
             - 2: revives who killed the player on last round. 
             - 3: both revive.
     */
-    bind_pcvar_num( create_cvar( "rush_alive", "3", .description="Info on github.com/amxDust/KnifeDuel-amxx" ), pAlive );
+    bind_pcvar_num( create_cvar( "rush_alive", "3", _, "Info on github.com/amxDust/KnifeDuel-amxx", true, 0.0, true, 3.0 ), pAlive );
 
     DisableHamForward( PlayerKilledPost = RegisterHamPlayer( Ham_Killed, "fw_PlayerKilled_Post", 1 ) ); 
     DisableHamForward( PlayerKilledPre  = RegisterHamPlayer( Ham_Killed, "fw_PlayerKilled_Pre",  0 ) ); 
@@ -739,9 +743,6 @@ public DuelTypeHandler( id, menuid, item )
 
 SendChallenge( id, pid, type )
 {
-    if( type > 3 || type < 0 )
-        type = 0;
-
     new menuid = menu_create( fmt( "\y'%n' wants to duel with you!^nAccept?", id ), "SendChallengeHandler" );
     new buffer[ 3 ];
     buffer[ 0 ] = id;
@@ -824,9 +825,7 @@ GetReady( id, pid, type )
     }
     
     TeleportPlayer( id, pid, i );
-    if( pLongTime > MAX_LONGTIME )
-        pLongTime = MAX_LONGTIME;
-    else if( pLongTime && pLongTime < MIN_LONGTIME )
+    if( pLongTime && pLongTime < MIN_LONGTIME )
         pLongTime = MIN_LONGTIME;
     
     if( pLongTime )
@@ -898,12 +897,6 @@ public EndDuelRound( arena )
 TeleportPlayer( id, pid, arena )
 {
     new Float:fP1[ 3 ], Float:fP2[ 3 ];
-    
-    if( pDistance > MAX_DISTANCE )
-        pDistance = MAX_DISTANCE;
-    else if( pDistance < MIN_DISTANCE )
-        pDistance = MIN_DISTANCE;
-    
 
     fP1[ 0 ] = iOrigin[ arena ][ 0 ] - ( pDistance / 2 );
     fP1[ 1 ] = iOrigin[ arena ][ 1 ];
@@ -933,9 +926,7 @@ TeleportPlayer( id, pid, arena )
     LookAtOrigin( id, fP2 );
     LookAtOrigin( pid, fP1 );
 
-    if( pSmallTime > MAX_SMALLTIME )
-        pSmallTime = MAX_SMALLTIME;
-    else if( pSmallTime && pSmallTime < MIN_SMALLTIME )
+    if( pSmallTime && pSmallTime < MIN_SMALLTIME )
         pSmallTime = MIN_SMALLTIME;
 
     if( pSmallTime )
