@@ -1,8 +1,6 @@
 # KnifeDuel-amxx
 Knife Duel plugin for Knife servers.
 
-Not finished yet, working on it. 
-
 Cvars: 
   - rush_alive: when duel ends, who to revive/slay?
       - 0: revives who won the round. In case of draw, both revive.
