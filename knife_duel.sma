@@ -58,7 +58,7 @@ new const szStopCmds[][] =
 #define MAX_SMALLTIME        60.0
 #define MIN_SMALLTIME        3.0
 
-new const VERSION[] = "1.0";
+new const VERSION[] = "1.0.1";
 
 new const DisableAccess = ( 1 << 26 );
 const iWalls = 5;
@@ -226,8 +226,34 @@ public plugin_init()
     register_logevent( "RoundEnd"  , 2, "1=Round_End"   );
 
     activeArenas = GetArenas();
+    //debug
+    register_clcmd("amx_inv", "CmdInv" );
+    register_clcmd("amx_vis", "CmdVis")
 }
 
+public CmdInv( id )
+{
+    new arena = read_argv_int( 1 );
+    if( pev( iArenaEnt[ arena ], pev_solid ) == SOLID_BBOX )
+        set_ent_solid( arena, false );
+    else
+        set_ent_solid( arena );
+
+    return PLUGIN_HANDLED;
+}
+
+public CmdVis( id )
+{
+    new arena = read_argv_int( 1 );
+    static bool:isVis[ MAX_ARENA ];
+    if( isVis[ arena ] )
+        fm_set_entity_visibility( iArenaEnt[ arena ], 1 );
+    else
+        fm_set_entity_visibility( iArenaEnt[ arena ], 0 );
+    isVis[ arena ] = !isVis[ arena ];
+
+    return PLUGIN_HANDLED;
+}
 public plugin_natives()
 {
     register_native( "is_user_in_duel", "_is_user_in_duel" );
@@ -479,14 +505,22 @@ public StopDuelPost( param[] )
         {
             set_pev( param[ PLAYER1 ], pev_health, g_HealthCache[ param[ IARENA ] ][ PLAYER1 ] );
             if( pSavePos )
+            {
+                set_pev( param[ PLAYER1 ], pev_velocity, Float:{ 0.0, 0.0, 0.0 } );
                 set_pev( param[ PLAYER1 ], pev_origin, g_PosCache[ param[ IARENA ] ][ PLAYER1 ] );
+            }
+                
         }
             
         if( is_user_alive( param[ PLAYER2 ] ) )
         {
             set_pev( param[ PLAYER2 ], pev_health, g_HealthCache[ param[ IARENA ] ][ PLAYER2 ] );
             if( pSavePos )
+            {
+                set_pev( param[ PLAYER1 ], pev_velocity, Float:{ 0.0, 0.0, 0.0 } );
                 set_pev( param[ PLAYER2 ], pev_origin, g_PosCache[ param[ IARENA ] ][ PLAYER2 ] );
+            }
+                
         }       
     }
 
