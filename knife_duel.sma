@@ -2,7 +2,7 @@
     Credits:
         - mogel: drawing the mins and maxs taken from his walkguardmenu.
         - sTyLa: took the duel model from her server.        
-        - me: taken part of the challenge code from my rush duel plugin.
+        - me: took part of the challenge code from my rush duel plugin.
 */
 
 #include < amxmodx >
