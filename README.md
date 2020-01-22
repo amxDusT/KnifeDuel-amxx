@@ -46,4 +46,5 @@ Various Stuff:
   - if players disconnects, the duel is stopped.
   - if server's round ends, the duel will continue on next round.
   - corspes on the arena should get removed within ~2 seconds ( just the time of the animation ).
+  - plugin has "is_user_in_duel" native that returns 1 if player is in duel, 0 otherwise. 
   
