@@ -2,7 +2,7 @@
 Knife Duel plugin for Knife servers.
 
 Cvars: 
-  - rush_alive: when duel ends, who to revive/slay?
+  - kd_alive: when duel ends, who to revive/slay?
       - 0: revives who won the round. In case of draw, both revive.
       - 1: revives who won the round. In case of draw, both dead.
       - 2: revives who killed the player on last round. 
