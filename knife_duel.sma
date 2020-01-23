@@ -61,7 +61,7 @@ new const Float:MIN_LONGTIME  =   30.0;
 new const Float:MAX_SMALLTIME =   60.0;
 new const Float:MIN_SMALLTIME =   3.0;
 
-new const VERSION[] = "1.0.2";
+new const VERSION[] = "1.1.0";
 
 new const DisableAccess = ( 1 << 26 );
 const iWalls = 5;
@@ -92,21 +92,18 @@ enum _:eWalls
     SIDE_RIGHT,
     SIDE_UP
 };
-
 enum _:attType
 {
     BOTH = 0,
     SLASH,
     STAB
 }
-
 enum _:duelData
 {
     PLAYER1 = 0,
     PLAYER2,
     DUELTYPE
 }
-
 enum _:eLastData
 {
     IPLAYER1 = 0,
@@ -125,6 +122,22 @@ enum _:eEndDuelReason
     TIME_END,
     PLAYER_STOP,
     PLAYER_DISCONNECTED
+}
+enum _:eTaskIds ( += 1000 )
+{
+    TASK_DRAW = 322,
+    TASK_HP,
+    TASK_DUELROUND,
+    TASK_AUTOKILLEND,
+    TASK_REVIVE,
+    TASK_RESTART
+}
+enum _:eAliveData
+{
+    REVIVE_WINNER1 = 0,
+    REVIVE_WINNER2,
+    REVIVE_LAST,
+    REVIVE_BOTH
 }
 
 new const Float:fMaxs[ 3 ] = { 337.0, 237.0, 4.0 };
@@ -146,16 +159,6 @@ new Float:g_HealthCache[ MAX_ARENA ][ 2 ];
 new Float:g_PosCache[ MAX_ARENA ][ 2 ][ 3 ];
 new Float:fMapHp;
 
-enum _:eTaskIds ( += 1000 )
-{
-    TASK_DRAW = 322,
-    TASK_HP,
-    TASK_DUELROUND,
-    TASK_AUTOKILLEND,
-    TASK_REVIVE,
-    TASK_RESTART
-}
-
 // -- draw -- 
 new const szBeam[]  = "sprites/lgtning.spr";
 new beam;
@@ -166,7 +169,7 @@ new direction;
 new HamHook:PlayerSpawnPost, HamHook:PlayerKilledPre, HamHook:PlayerKilledPost;
 new PlayerThink;
 
-new pSaveHealth, pSavePos, pAttackType;
+new pSaveHealth, pSavePos, pAttackType, pPunish;
 new pFakeRounds, pRounds;
 new pAlive;
 new Float:pHealth[ attType ];
@@ -195,7 +198,7 @@ public plugin_init()
     bind_pcvar_float( create_cvar( "kd_max_duel_time", "100", _, "0 to disable. After this time passed on the duel, duel will be stopped.", true, 0.0, true, MAX_LONGTIME  ), pLongTime  );
     bind_pcvar_float( create_cvar( "kd_cooldown", "10", _, _, true, 0.0 ), pNextDuel );
 
-    
+    bind_pcvar_num( create_cvar( "kd_stop_punish", "0", _, "0:Nothing, 1:slay, 2+:increase cooldown by the number", true, 0.0), pPunish );    
     bind_pcvar_num( create_cvar( "kd_save_health", "1", _, _, true, 0.0, true, 1.0 ), pSaveHealth );
     bind_pcvar_num( create_cvar( "kd_save_pos", "1", _, _, true, 0.0, true, 1.0 ), pSavePos );
     bind_pcvar_num( create_cvar( "kd_rounds", "10", _, _, true, 1.0 ), pRounds );
@@ -230,34 +233,8 @@ public plugin_init()
     register_logevent( "RoundEnd"  , 2, "1=Round_End"   );
 
     activeArenas = GetArenas();
-    //debug
-    register_clcmd("amx_inv", "CmdInv" );
-    register_clcmd("amx_vis", "CmdVis")
 }
 
-public CmdInv( id )
-{
-    new arena = read_argv_int( 1 );
-    if( pev( iArenaEnt[ arena ], pev_solid ) == SOLID_BBOX )
-        set_ent_solid( arena, false );
-    else
-        set_ent_solid( arena );
-
-    return PLUGIN_HANDLED;
-}
-
-public CmdVis( id )
-{
-    new arena = read_argv_int( 1 );
-    static bool:isVis[ MAX_ARENA ];
-    if( isVis[ arena ] )
-        fm_set_entity_visibility( iArenaEnt[ arena ], 1 );
-    else
-        fm_set_entity_visibility( iArenaEnt[ arena ], 0 );
-    isVis[ arena ] = !isVis[ arena ];
-
-    return PLUGIN_HANDLED;
-}
 public plugin_natives()
 {
     register_native( "is_user_in_duel", "_is_user_in_duel" );
@@ -275,9 +252,15 @@ public client_disconnected( id )
     {
         StopDuelPre( GetArena( id ), PLAYER_DISCONNECTED, id );
     }
+
     fLastDuel[ id ] = 0.0;
+    hasBlocked[ id ] = 0;
+    if( check_bit( hasDisabledDuel, id ) )
+        clear_bit( hasDisabledDuel, id );
 }
 
+// mostly to avoid maps where you spawn with 100hp and then it gets removed by falling or an entity under the spawn
+// so hp doesn't save to 100 when duel is over. 
 public RoundStart()
 {
     set_task( 2.0, "AllowDuel" );
@@ -297,8 +280,7 @@ public fw_PlayerThink_Pre( id )
 {
     if( check_bit( bIsInDuel, id ) )
     {
-        new arena = GetArena( id );
-        switch( g_DuelInfo[ arena ][ DUELTYPE ] )
+        switch( g_DuelInfo[ GetArena( id ) ][ DUELTYPE ] )
         {
             case STAB:
             {
@@ -318,6 +300,7 @@ public fw_PlayerThink_Pre( id )
             }
         }
     }
+    return FMRES_IGNORED;
 }
 
 public fw_PlayerKilled_Post( victim, killer )
@@ -355,8 +338,8 @@ public fw_PlayerKilled_Post( victim, killer )
             if( !task_exists( arena + TASK_RESTART ) )
                 set_task( 0.5, "CallBackTeleportPlayer", arena + TASK_RESTART );
         }
-            
     }
+    return HAM_IGNORED;
 }
 
 public ReviveDead( id )
@@ -397,6 +380,7 @@ public fw_PlayerSpawn_Post( id )
             set_task( 0.5, "CallBackTeleportPlayer", arena + TASK_RESTART );
         }
     }
+    return HAM_IGNORED;
 }
 
 StopDuelPre( arena, reason = NONE, player = 0 )
@@ -416,8 +400,9 @@ StopDuelPre( arena, reason = NONE, player = 0 )
     clear_bit( bIsInDuel, param[ PLAYER1 ] );
     clear_bit( bIsInDuel, param[ PLAYER2 ] );
 
+    fLastDuel[ param[ PLAYER1 ] ] = get_gametime();
     fLastDuel[ param[ PLAYER2 ] ] = get_gametime();
-    fLastDuel[ param[ PLAYER2 ] ] = get_gametime();
+
     if( task_exists( arena + TASK_RESTART ) )
         remove_task( arena + TASK_RESTART );
     
@@ -445,7 +430,7 @@ StopDuelPre( arena, reason = NONE, player = 0 )
             
             switch( pAlive )
             {
-                case 0, 1:
+                case REVIVE_WINNER1, REVIVE_WINNER2:
                 {
                     if( param[ IWINNER ] )
                     {
@@ -455,7 +440,7 @@ StopDuelPre( arena, reason = NONE, player = 0 )
                     }
                     else
                     {
-                        if( pAlive == 0 )
+                        if( pAlive == REVIVE_WINNER1 )
                         {
                             set_task( 0.1, "ReviveDead", param[ PLAYER1 ] + TASK_REVIVE );
                             set_task( 0.1, "ReviveDead", param[ PLAYER2 ] + TASK_REVIVE );
@@ -470,7 +455,7 @@ StopDuelPre( arena, reason = NONE, player = 0 )
                         }
                     }   
                 }
-                case 2:
+                case REVIVE_LAST:
                 {
                     if( is_user_alive( param[ PLAYER1 ] ) )
                         set_task( 0.1, "ReviveDead", param[ PLAYER1 ] + TASK_REVIVE );
@@ -478,7 +463,7 @@ StopDuelPre( arena, reason = NONE, player = 0 )
                     if( is_user_alive( param[ PLAYER2 ] ) )
                         set_task( 0.1, "ReviveDead", param[ PLAYER2 ] + TASK_REVIVE );
                 }
-                case 3:
+                case REVIVE_BOTH:
                 {
                     set_task( 0.1, "ReviveDead", param[ PLAYER1 ] + TASK_REVIVE );
                     set_task( 0.1, "ReviveDead", param[ PLAYER2 ] + TASK_REVIVE );
@@ -489,13 +474,27 @@ StopDuelPre( arena, reason = NONE, player = 0 )
         {
             param[ IWINNER ] = player;
             
-            set_task( 0.1, "ReviveDead", param[ param[ IPOS ] ] + TASK_REVIVE );
+            set_task( 0.1, "ReviveDead", param[ 1 - param[ IPOS ] ] + TASK_REVIVE );
+            if( pPunish == 1 )
+            {
+                if( is_user_alive( player ) )
+                    user_silentkill( player );
+            }
+            else if( pPunish > 1 )
+            {
+                fLastDuel[ player ] += float( pPunish );
+            }
         }
         case PLAYER_DISCONNECTED:
         {
             param[ IWINNER ] = player;
 
+            set_task( 0.1, "ReviveDead", param[ 1 - param[ IPOS ] ] + TASK_REVIVE );
+        }
+        case FAKE_ROUNDS: 
+        {
             set_task( 0.1, "ReviveDead", param[ param[ IPOS ] ] + TASK_REVIVE );
+            set_task( 0.1, "ReviveDead", param[ 1 - param[ IPOS ] ] + TASK_REVIVE );
         }
     }
     set_task( 0.5, "StopDuelPost", _, param, sizeof param );
@@ -503,29 +502,27 @@ StopDuelPre( arena, reason = NONE, player = 0 )
 
 public StopDuelPost( param[] )
 {
-    if( pSaveHealth )
+    if( is_user_alive( param[ PLAYER1 ] ) )
     {
-        if( is_user_alive( param[ PLAYER1 ] ) )
-        {
+        if( pSaveHealth )
             set_pev( param[ PLAYER1 ], pev_health, g_HealthCache[ param[ IARENA ] ][ PLAYER1 ] );
-            if( pSavePos )
-            {
-                set_pev( param[ PLAYER1 ], pev_velocity, Float:{ 0.0, 0.0, 0.0 } );
-                set_pev( param[ PLAYER1 ], pev_origin, g_PosCache[ param[ IARENA ] ][ PLAYER1 ] );
-            }
-                
-        }
-            
-        if( is_user_alive( param[ PLAYER2 ] ) )
+        
+        if( pSavePos )
         {
+            set_pev( param[ PLAYER1 ], pev_velocity, Float:{ 0.0, 0.0, 0.0 } );
+            set_pev( param[ PLAYER1 ], pev_origin, g_PosCache[ param[ IARENA ] ][ PLAYER1 ] );
+        }
+    }
+    if( is_user_alive( param[ PLAYER2 ] ) )
+    {
+        if( pSaveHealth )
             set_pev( param[ PLAYER2 ], pev_health, g_HealthCache[ param[ IARENA ] ][ PLAYER2 ] );
-            if( pSavePos )
-            {
-                set_pev( param[ PLAYER1 ], pev_velocity, Float:{ 0.0, 0.0, 0.0 } );
-                set_pev( param[ PLAYER2 ], pev_origin, g_PosCache[ param[ IARENA ] ][ PLAYER2 ] );
-            }
-                
-        }       
+        
+        if( pSavePos )
+        {
+            set_pev( param[ PLAYER2 ], pev_velocity, Float:{ 0.0, 0.0, 0.0 } );
+            set_pev( param[ PLAYER2 ], pev_origin, g_PosCache[ param[ IARENA ] ][ PLAYER2 ] );
+        }   
     }
 
     fm_set_entity_visibility( iArenaEnt[ param[ IARENA ] ], 0 );
@@ -541,8 +538,16 @@ public StopDuelPost( param[] )
     {
         case NONE:
         {
-            client_print_color( param[ IWINNER ], print_team_red, "%s You won against ^3%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ 1 - param[ IPOS ] ],  param[ param[ IPOS ] + 2 ], param[ ( 1 - param[ IPOS ] ) + 2 ], pRounds );
-            client_print_color( param[ 1 - param[ IPOS ] ], print_team_red, "%s You lost against ^4%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ IWINNER ], param[ ( 1 - param[ IPOS ] ) + 2 ], param[ param[ IPOS ] + 2 ], pRounds );
+            if( param[ IWINNER ] )
+            {
+                client_print_color( param[ IWINNER ], print_team_red, "%s You won against ^3%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ 1 - param[ IPOS ] ],  param[ param[ IPOS ] + 2 ], param[ ( 1 - param[ IPOS ] ) + 2 ], pRounds );
+                client_print_color( param[ 1 - param[ IPOS ] ], print_team_red, "%s You lost against ^4%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ IWINNER ], param[ ( 1 - param[ IPOS ] ) + 2 ], param[ param[ IPOS ] + 2 ], pRounds );
+            }
+            else
+            {
+                client_print_color( param[ PLAYER1 ], print_team_red, "%s You draw against ^3%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ PLAYER2 ], param[ IROUND1 ], param[ IROUND2 ], pRounds );
+                client_print_color( param[ PLAYER2 ], print_team_red, "%s You draw against ^3%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ PLAYER1 ], param[ IROUND2 ], param[ IROUND1 ], pRounds );
+            }
         }
         case FAKE_ROUNDS:
         {
@@ -569,7 +574,13 @@ public StopDuelPost( param[] )
 public CmdStopDuel( id )
 {
     if( check_bit( bIsInDuel, id ) )
+    {
+        if( task_exists( id + TASK_REVIVE ) )
+            remove_task( id + TASK_REVIVE );
+
         StopDuelPre( GetArena( id ), PLAYER_STOP, id );
+    }
+        
     else
         client_print_color( id, print_team_red, "%s You are not in a duel.", PREFIX );
     
@@ -1581,4 +1592,4 @@ stock LookAtOrigin(const id, const Float:fOrigin_dest[3])
     
     set_pev(id, pev_angles, fLook);
     set_pev(id, pev_fixangle, 1);
-}  
+}
