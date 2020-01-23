@@ -223,7 +223,7 @@ public plugin_init()
             - 2: revives who killed the player on last round. 
             - 3: both revive.
     */
-    bind_pcvar_num( create_cvar( "rush_alive", "3", _, "Info on github.com/amxDust/KnifeDuel-amxx", true, 0.0, true, 3.0 ), pAlive );
+    bind_pcvar_num( create_cvar( "kd_alive", "3", _, "Info on github.com/amxDust/KnifeDuel-amxx", true, 0.0, true, 3.0 ), pAlive );
 
     DisableHamForward( PlayerKilledPost = RegisterHamPlayer( Ham_Killed, "fw_PlayerKilled_Post", 1 ) ); 
     DisableHamForward( PlayerKilledPre  = RegisterHamPlayer( Ham_Killed, "fw_PlayerKilled_Pre",  0 ) ); 
