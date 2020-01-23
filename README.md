@@ -25,7 +25,7 @@ Cvars:
   - kd_fake_rounds: how many fake rounds can the duel accept before it stops the duel.
       - a fake round can be caused by the ROUND time ending or because one of the players died but it wasn't the duel enemy to kill him.
         In case a "fake round" happens, the round is not counted as an effective one and the same round is restarted.
-  (FROM VERSION 1.1.X)
+ (FROM VERSION 1.1.X)
   - kd_stop_punish:  a sort of penalty for players that use the StopDuel command. 
       - 0: disabled.
       - 1: slays if alive.
