@@ -21,6 +21,7 @@
 
 // --------- Editable Stuff ---------
 
+#define STATIC_SCOREBOARD    // whether the scoreboard should show the kills/deaths you do during knife duel
 #define ADMIN_FLAG          ADMIN_LEVEL_A
 #define MAX_ARENA           4
 #define PREFIX              "^4[KNIFE]^1"
@@ -47,6 +48,11 @@ new const szStopCmds[][] =
 };
 // ----------------------------------
 
+#if defined STATIC_SCOREBOARD
+    #include < cstrike >
+    #include < fun >
+#endif
+
 #define pev_rplayer1        pev_iuser1
 #define pev_rplayer2        pev_iuser2
 #define pev_rtotal          pev_iuser3
@@ -61,7 +67,7 @@ new const Float:MIN_LONGTIME  =   30.0;
 new const Float:MAX_SMALLTIME =   60.0;
 new const Float:MIN_SMALLTIME =   3.0;
 
-new const VERSION[] = "1.1.0";
+new const VERSION[] = "1.1.2";
 
 new const DisableAccess = ( 1 << 26 );
 const iWalls = 5;
@@ -171,7 +177,7 @@ new PlayerThink;
 
 new pSaveHealth, pSavePos, pAttackType, pPunish;
 new pFakeRounds, pRounds;
-new pAlive;
+new pAlive, pShow;
 new Float:pHealth[ attType ];
 new Float:pDistance;
 new Float:pSmallTime, Float:pLongTime;
@@ -198,6 +204,7 @@ public plugin_init()
     bind_pcvar_float( create_cvar( "kd_max_duel_time", "100", _, "0 to disable. After this time passed on the duel, duel will be stopped.", true, 0.0, true, MAX_LONGTIME  ), pLongTime  );
     bind_pcvar_float( create_cvar( "kd_cooldown", "10", _, _, true, 0.0 ), pNextDuel );
 
+    bind_pcvar_num( create_cvar( "kd_public_result", "0", _, "Show to everyone who won/lost.", true, 0.0, true, 1.0 ), pShow );
     bind_pcvar_num( create_cvar( "kd_stop_punish", "0", _, "0:Nothing, 1:slay, 2+:increase cooldown by the number", true, 0.0), pPunish );    
     bind_pcvar_num( create_cvar( "kd_save_health", "1", _, _, true, 0.0, true, 1.0 ), pSaveHealth );
     bind_pcvar_num( create_cvar( "kd_save_pos", "1", _, _, true, 0.0, true, 1.0 ), pSavePos );
@@ -309,7 +316,7 @@ public fw_PlayerKilled_Post( victim, killer )
     {
         new arena = GetArena( victim );
         new pos = GetPos( victim, arena );
-
+        
         if( task_exists( arena + TASK_DUELROUND ) )
             remove_task( arena + TASK_DUELROUND );
         
@@ -324,7 +331,8 @@ public fw_PlayerKilled_Post( victim, killer )
         else
         {
             set_pev( iArenaEnt[ arena ], pev_rplayer1 + ( 1 - pos ), pev( iArenaEnt[ arena ], pev_rplayer1 + ( 1 - pos ) ) + 1 );
-            
+
+
             new rTotal = pev( iArenaEnt[ arena ], pev_rtotal ) + 1;
             if( rTotal >= pRounds )
                 StopDuelPre( arena );
@@ -363,8 +371,18 @@ public fw_PlayerKilled_Pre( victim, killer )
     {
         if( msgCorpse || ( msgCorpse = get_user_msgid( "ClCorpse" ) ) )
             set_msg_block( msgCorpse, BLOCK_ONCE );
+        
+        #if defined STATIC_SCOREBOARD    
+            if( killer == g_DuelInfo[ GetArena( victim ) ][ 1 - GetPos( victim ) ] )
+            {
+                cs_set_user_deaths( victim, cs_get_user_deaths( victim ) - 1 );
+                set_user_frags( killer, get_user_frags( killer ) - 1 );
+            }
+        #endif
+
         return HAM_HANDLED;
     }
+    
     return HAM_IGNORED;
 }
 
@@ -538,15 +556,43 @@ public StopDuelPost( param[] )
     {
         case NONE:
         {
+            
+            new players[ 32 ], num;
+
+            if( pShow )
+                get_players( players, num );
+
             if( param[ IWINNER ] )
             {
                 client_print_color( param[ IWINNER ], print_team_red, "%s You won against ^3%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ 1 - param[ IPOS ] ],  param[ param[ IPOS ] + 2 ], param[ ( 1 - param[ IPOS ] ) + 2 ], pRounds );
                 client_print_color( param[ 1 - param[ IPOS ] ], print_team_red, "%s You lost against ^4%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ IWINNER ], param[ ( 1 - param[ IPOS ] ) + 2 ], param[ param[ IPOS ] + 2 ], pRounds );
+                
+                if( pShow )
+                {
+                    for( new i; i < num; i++ )
+                    {
+                        if( players[ i ] == param[ PLAYER1 ] || players[ i ] == param[ PLAYER2 ] )
+                            continue;
+
+                        client_print_color( players[ i ], print_team_red, "%s ^4%n^1 won against ^3%n^1 in a ^4Knife Duel^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ IWINNER ], param[ 1 - param[ IPOS ] ], param[ param[ IPOS ] + 2 ], param[ ( 1 - param[ IPOS ] ) + 2 ], pRounds );
+                    }
+                }
             }
             else
             {
                 client_print_color( param[ PLAYER1 ], print_team_red, "%s You draw against ^3%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ PLAYER2 ], param[ IROUND1 ], param[ IROUND2 ], pRounds );
                 client_print_color( param[ PLAYER2 ], print_team_red, "%s You draw against ^3%n^1 [ ^4%d^1 | ^3%d^1 | %d ]", PREFIX, param[ PLAYER1 ], param[ IROUND2 ], param[ IROUND1 ], pRounds );
+
+                if( pShow )
+                {
+                    for( new i; i < num; i++ )
+                    {
+                        if( players[ i ] == param[ PLAYER1 ] || players[ i ] == param[ PLAYER2 ] )
+                            continue;
+                        
+                        client_print_color( players[ i ], print_team_red, "%s ^3%n^1 draw against ^3%n^1 in a ^4Knife Duel^1.", PREFIX, param[ PLAYER1 ], param[ PLAYER2 ] );
+                    }
+                }
             }
         }
         case FAKE_ROUNDS:
