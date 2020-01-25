@@ -1,7 +1,7 @@
 # KnifeDuel-amxx
 Knife Duel plugin for Knife servers.
 
-Cvars: 
+Cvars ( if USE_INI is defined, they'll be in knife_duel.ini ):
   - kd_alive: when duel ends, who to revive/slay?
       - 0: revives who won the round. In case of draw, both revive.
       - 1: revives who won the round. In case of draw, both dead.
@@ -54,4 +54,5 @@ Various Stuff:
   - corspes on the arena should get removed within ~2 seconds ( just the time of the animation ).
   - plugin has "is_user_in_duel" native that returns 1 if player is in duel, 0 otherwise. 
   - you can decide whether scoreboard should update with kills/deaths made by players in duel.
-  
+  - either use knife_duels.ini or cvars to set up the plugin.
+  - you can choose whether kills/deaths in the duel should affect client's score.
