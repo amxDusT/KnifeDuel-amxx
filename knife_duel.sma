@@ -21,6 +21,7 @@
 
 // --------- Editable Stuff ---------
 
+#define USE_INI              // if defined, uses a .ini in the config file instead of cvars.
 #define STATIC_SCOREBOARD    // whether the scoreboard should show the kills/deaths you do during knife duel
 #define ADMIN_FLAG          ADMIN_LEVEL_A
 #define MAX_ARENA           4
@@ -67,7 +68,7 @@ new const Float:MIN_LONGTIME  =   30.0;
 new const Float:MAX_SMALLTIME =   60.0;
 new const Float:MIN_SMALLTIME =   3.0;
 
-new const VERSION[] = "1.1.2";
+new const VERSION[] = "1.1.3";
 
 new const DisableAccess = ( 1 << 26 );
 const iWalls = 5;
@@ -145,7 +146,26 @@ enum _:eAliveData
     REVIVE_LAST,
     REVIVE_BOTH
 }
-
+#if defined USE_INI
+    enum _:eSettings
+    {
+        SSAVE_POSITION   = 0,
+        SHEALTH_SLASH    = 1,
+        SHEALTH_STAB     = 2,
+        SHEALTH_BOTH     = 3,
+        SSAVE_HEALTH     = 4,
+        SPUBLIC_RESULT   = 5,
+        SROUNDS          = 6,
+        SALIVE           = 7,
+        SATTACK_TYPE     = 8,
+        SFAKE_ROUNDS     = 9, 
+        SPUNISH          = 10,
+        SCOOLDOWN        = 11,
+        SDISTANCE        = 12,
+        SMAX_ROUND_TIME  = 13,
+        SMAX_DUEL_TIME   = 14
+    }
+#endif
 new const Float:fMaxs[ 3 ] = { 337.0, 237.0, 4.0 };
 new const Float:fMins[ 3 ] = { -337.0, -237.0, -4.0 };
 new const Float:fSafeDistance = 25.0;
@@ -196,41 +216,26 @@ public plugin_init()
     for( new i; i < sizeof szStopCmds; i++ )
         register_clcmd( szStopCmds[ i ], "CmdStopDuel" );
 
-    bind_pcvar_float( create_cvar( "kd_health_slash", "1" , _, _, true, 0.0, true, 100.0 ), Float:pHealth[ SLASH ] );
-    bind_pcvar_float( create_cvar( "kd_health_stab",  "35", _, _, true, 0.0, true, 100.0 ), Float:pHealth[ STAB ]  );
-    bind_pcvar_float( create_cvar( "kd_health_both",  "0" , _, _, true, 0.0, true, 100.0 ), Float:pHealth[ BOTH ]  );
-    bind_pcvar_float( create_cvar( "kd_players_distance", "500", _, _, true, MIN_DISTANCE, true, MAX_DISTANCE ), pDistance );
-    bind_pcvar_float( create_cvar( "kd_max_round_time", "10", _, "0 to disable. After this time passed on one round, round will restart.",  true, 0.0, true, MAX_SMALLTIME ), pSmallTime );
-    bind_pcvar_float( create_cvar( "kd_max_duel_time", "100", _, "0 to disable. After this time passed on the duel, duel will be stopped.", true, 0.0, true, MAX_LONGTIME  ), pLongTime  );
-    bind_pcvar_float( create_cvar( "kd_cooldown", "10", _, _, true, 0.0 ), pNextDuel );
+    #if !defined USE_INI
+        bind_pcvar_float( create_cvar( "kd_health_slash", "1" , _, _, true, 0.0, true, 100.0 ), Float:pHealth[ SLASH ] );
+        bind_pcvar_float( create_cvar( "kd_health_stab",  "35", _, _, true, 0.0, true, 100.0 ), Float:pHealth[ STAB ]  );
+        bind_pcvar_float( create_cvar( "kd_health_both",  "0" , _, _, true, 0.0, true, 100.0 ), Float:pHealth[ BOTH ]  );
+        bind_pcvar_float( create_cvar( "kd_players_distance", "500", _, _, true, MIN_DISTANCE, true, MAX_DISTANCE ), pDistance );
+        bind_pcvar_float( create_cvar( "kd_max_round_time", "10", _, "0 to disable. After this time passed on one round, round will restart.",  true, 0.0, true, MAX_SMALLTIME ), pSmallTime );
+        bind_pcvar_float( create_cvar( "kd_max_duel_time", "100", _, "0 to disable. After this time passed on the duel, duel will be stopped.", true, 0.0, true, MAX_LONGTIME  ), pLongTime  );
+        bind_pcvar_float( create_cvar( "kd_cooldown", "10", _, _, true, 0.0 ), pNextDuel );
 
-    bind_pcvar_num( create_cvar( "kd_public_result", "0", _, "Show to everyone who won/lost.", true, 0.0, true, 1.0 ), pShow );
-    bind_pcvar_num( create_cvar( "kd_stop_punish", "0", _, "0:Nothing, 1:slay, 2+:increase cooldown by the number", true, 0.0), pPunish );    
-    bind_pcvar_num( create_cvar( "kd_save_health", "1", _, _, true, 0.0, true, 1.0 ), pSaveHealth );
-    bind_pcvar_num( create_cvar( "kd_save_pos", "1", _, _, true, 0.0, true, 1.0 ), pSavePos );
-    bind_pcvar_num( create_cvar( "kd_rounds", "10", _, _, true, 1.0 ), pRounds );
-    /*
-        description:
-            - 0: both
-            - 1: slash / m1 
-            - 2: stab / m2
-            - 3: allow player to choose
-    */
-    bind_pcvar_num( create_cvar( "kd_attack_type", "0", _, "more info at github.com/amxDusT/KnifeDuel-amxx", true, 0.0, true, 3.0 ), pAttackType );
-    /*
-        if kd_max_round_time expires or duel player gets killed not by enemy the round is not counted, but it gets added to the
-        not counted round ("fake rounds").
-        Once fake rounds reaches kd_fake_rounds cvar, the duel is interrupted. 
-    */
-    bind_pcvar_num( create_cvar( "kd_fake_rounds", "5", _, "more info at github.com/amxDusT/KnifeDuel-amxx", true, 0.0 ), pFakeRounds );
-    /*
-        description:
-            - 0: revives who won the round. In case of draw, both revive.
-            - 1: revives who won the round. In case of draw, both dead.
-            - 2: revives who killed the player on last round. 
-            - 3: both revive.
-    */
-    bind_pcvar_num( create_cvar( "kd_alive", "3", _, "Info on github.com/amxDust/KnifeDuel-amxx", true, 0.0, true, 3.0 ), pAlive );
+        bind_pcvar_num( create_cvar( "kd_public_result", "0", _, "Show to everyone who won/lost.", true, 0.0, true, 1.0 ), pShow );
+        bind_pcvar_num( create_cvar( "kd_stop_punish", "0", _, "0:Nothing, 1:slay, 2+:increase cooldown by the number", true, 0.0), pPunish );    
+        bind_pcvar_num( create_cvar( "kd_save_health", "1", _, _, true, 0.0, true, 1.0 ), pSaveHealth );
+        bind_pcvar_num( create_cvar( "kd_save_pos", "1", _, _, true, 0.0, true, 1.0 ), pSavePos );
+        bind_pcvar_num( create_cvar( "kd_rounds", "10", _, _, true, 1.0 ), pRounds );
+        bind_pcvar_num( create_cvar( "kd_attack_type", "0", _, "more info at github.com/amxDusT/KnifeDuel-amxx", true, 0.0, true, 3.0 ), pAttackType );
+        bind_pcvar_num( create_cvar( "kd_fake_rounds", "5", _, "more info at github.com/amxDusT/KnifeDuel-amxx", true, 0.0 ), pFakeRounds );
+        bind_pcvar_num( create_cvar( "kd_alive", "3", _, "Info on github.com/amxDust/KnifeDuel-amxx", true, 0.0, true, 3.0 ), pAlive );
+    #else
+        ReadINI();
+    #endif
 
     DisableHamForward( PlayerKilledPost = RegisterHamPlayer( Ham_Killed, "fw_PlayerKilled_Post", 1 ) ); 
     DisableHamForward( PlayerKilledPre  = RegisterHamPlayer( Ham_Killed, "fw_PlayerKilled_Pre",  0 ) ); 
@@ -265,6 +270,175 @@ public client_disconnected( id )
     if( check_bit( hasDisabledDuel, id ) )
         clear_bit( hasDisabledDuel, id );
 }
+
+#if defined USE_INI 
+    ReadINI()
+    {
+        new szDir[ 128 ];
+        get_configsdir( szDir, charsmax( szDir ) );
+
+        add( szDir, charsmax( szDir ), "/knife_duel.ini" );
+
+        if( !file_exists( szDir ) )
+        {
+            set_fail_state( "Plugin needs knife_duel.ini or undefine USE_INI" );
+            return;
+        }
+        new fp = fopen( szDir, "rt" );
+        new szData[ 128 ], szToken[ 32 ], szValue[ 5 ];
+        new bCheckAll;
+        while( fgets( fp, szData, charsmax( szData ) ) )
+        {
+            if( szData[ 0 ] == '/' && szData[ 1 ] == '/' )
+                continue;
+            if( szData[ 0 ] == ';' )
+                continue;
+            trim( szData );
+            if( !szData[ 0 ] )
+                continue;
+
+            strtok2( szData, szToken, charsmax( szToken ), szValue, charsmax( szValue ), '=' );
+            trim( szValue );
+            trim( szToken );
+
+            if( equal( szToken, "ROUNDS" ) )
+            {
+                pRounds = str_to_num( szValue );
+                if( pRounds < 1 )
+                    pRounds = 1;
+                set_bit( bCheckAll, SROUNDS );
+            }
+            else if( equal( szToken, "ALIVE" ) )
+            {
+                pAlive = str_to_num( szValue );
+                if( pAlive < 0 )
+                    pAlive = 0;
+                else if( pAlive > 3 )
+                    pAlive = 3;
+                set_bit( bCheckAll, SALIVE );
+            }
+            else if( equal( szToken, "ATTACK_TYPE" ) )
+            {
+                pAttackType = str_to_num( szValue );
+                if( pAttackType < 0 )
+                    pAttackType = 0;
+                else if( pAttackType > 3 )
+                    pAttackType = 3;    
+                set_bit( bCheckAll, SATTACK_TYPE );
+            }
+            else if( equal( szToken, "FAKE_ROUNDS" ) )
+            {
+                pRounds = str_to_num( szValue );
+                if( pRounds < 0 )
+                    pRounds = 0;
+                set_bit( bCheckAll, SFAKE_ROUNDS );
+            }
+            else if( equal( szToken, "PUNISH" ) )
+            {
+                pPunish = str_to_num( szValue );
+                if( pPunish < 0 )
+                    pPunish = 0;
+                set_bit( bCheckAll, SPUNISH );
+            }
+            else if( equal( szToken, "COOLDOWN" ) )
+            {
+                pNextDuel = str_to_float( szValue );
+                if( pNextDuel < 0.0 )
+                    pNextDuel = 0.0;
+                set_bit( bCheckAll, SCOOLDOWN );
+            }
+            else if( equal( szToken, "HEALTH_SLASH" ) )
+            {
+                pHealth[ SLASH ] = str_to_float( szValue );
+                if( pHealth[ SLASH ] < 0.0 )
+                    pHealth[ SLASH ] = 0.0;
+                else if( pHealth[ SLASH ] > 100.0 )
+                    pHealth[ SLASH ] = 100.0;
+                set_bit( bCheckAll, SHEALTH_SLASH );
+            }
+            else if( equal( szToken, "HEALTH_STAB" ) )
+            {
+                pHealth[ STAB ] = str_to_float( szValue );
+                if( pHealth[ STAB ] < 0.0 )
+                    pHealth[ STAB ] = 0.0;
+                else if( pHealth[ STAB ] > 100.0 )
+                    pHealth[ STAB ] = 100.0;
+                set_bit( bCheckAll, SHEALTH_STAB );
+            }
+            else if( equal( szToken, "HEALTH_BOTH" ) )
+            {
+                pHealth[ BOTH ] = str_to_float( szValue );
+                if( pHealth[ BOTH ] < 0.0 )
+                    pHealth[ BOTH ] = 0.0;
+                else if( pHealth[ BOTH ] > 100.0 )
+                    pHealth[ BOTH ] = 100.0;
+                set_bit( bCheckAll, SHEALTH_BOTH );
+            }
+            else if( equal( szToken, "DISTANCE" ) )
+            {
+                pDistance = str_to_float( szValue );
+                if( pDistance < MIN_DISTANCE )
+                    pDistance = MIN_DISTANCE;
+                else if( pDistance > MAX_DISTANCE )
+                    pDistance = MAX_DISTANCE;
+                set_bit( bCheckAll, SDISTANCE );
+            }
+            else if( equal( szToken, "MAX_ROUND_TIME" ) )
+            {
+                pSmallTime = str_to_float( szValue );
+                if( pSmallTime < MIN_SMALLTIME )
+                    pSmallTime = MIN_SMALLTIME;
+                else if( pSmallTime > MAX_SMALLTIME )
+                    pSmallTime = MAX_SMALLTIME;
+                set_bit( bCheckAll, SMAX_ROUND_TIME );
+            }
+            else if( equal( szToken, "MAX_DUEL_TIME" ) )
+            {
+                pLongTime = str_to_float( szValue );
+                if( pLongTime < MIN_LONGTIME )
+                    pLongTime = MIN_LONGTIME;
+                else if( pLongTime > MAX_LONGTIME )
+                    pLongTime = MAX_LONGTIME;
+                set_bit( bCheckAll, SMAX_DUEL_TIME );
+            }
+            else if( equal( szToken, "SAVE_HEALTH" ) )
+            {
+                pSaveHealth = str_to_num( szValue );
+                if( pSaveHealth < 0 )
+                    pSaveHealth = 0;
+                else if( pSaveHealth > 0 )
+                    pSaveHealth = 1;
+                set_bit( bCheckAll, SSAVE_HEALTH );
+            }
+            else if( equal( szToken, "SAVE_POSITION" ) )
+            {
+                pSavePos = str_to_num( szValue );
+                if( pSavePos < 0 )
+                    pSavePos = 0;
+                else if( pSavePos > 0 )
+                    pSavePos = 1;
+                set_bit( bCheckAll, SSAVE_POSITION );
+            }
+            else if( equal( szToken, "PUBLIC_RESULT" ) )
+            {
+                pShow = str_to_num( szValue );
+                if( pShow < 0 )
+                    pShow = 0;
+                else if( pShow > 0 )
+                    pShow = 1;
+                set_bit( bCheckAll, SPUBLIC_RESULT );
+            }
+            //server_print( "%s = %s", szToken, szValue );
+        }
+        fclose( fp );
+
+        for( new i; i < eSettings; i++ )
+        {
+            if( !check_bit( bCheckAll, i ) )
+                set_fail_state( "Error: Couldn't read all settings from INI ( %d ).", i );
+        }
+    }
+#endif
 
 // mostly to avoid maps where you spawn with 100hp and then it gets removed by falling or an entity under the spawn
 // so hp doesn't save to 100 when duel is over. 
