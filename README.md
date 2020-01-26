@@ -43,7 +43,7 @@ Commands:
   - kd_menu : opens knife duel menu
   - say /stop, /stopduel, /stopkd : ends a duel.
   - stop_duel : ends a duel.
- 
+
 Various Stuff:
   - you can block player from sending you invites.
   - you can block everyone from sending you invites.
@@ -53,6 +53,5 @@ Various Stuff:
   - if server's round ends, the duel will continue on next round.
   - corspes on the arena should get removed within ~2 seconds ( just the time of the animation ).
   - plugin has "is_user_in_duel" native that returns 1 if player is in duel, 0 otherwise. 
-  - you can decide whether scoreboard should update with kills/deaths made by players in duel.
   - either use knife_duels.ini or cvars to set up the plugin.
   - you can choose whether kills/deaths in the duel should affect client's score.
