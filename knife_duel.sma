@@ -1,4 +1,41 @@
 /*
+    LOGS:        
+    - added arenas, possibility to move arenas around, save, delete, edit. 
+    - initially arenas are solid_not, will become solid_bbox once they're being used.
+    - made invisible. visible to the one editing it currently. 
+    - added walls. they get removed if map removed. they move along with the knife platform.
+    - adding players that can send challenge
+    - added cmd /duel. checks if player can duel and allows to select another player.
+    - if the players both can duel and 2nd accepts, arena becomes visible, solid and pev_player1 & pev_player2 to player's names.
+    - added spawn. fixed solidity not working when changing arena's position.
+    - blocked possibility to use arenas that are being edited or edit arenas that are being used. ( in edit menu, used arenas are shown )
+    - added playerthink to check what player attack is using
+    - added playerkiled pre to remove corspes
+    - added pSmallTime and pLongTime ( to use for slaying players in the arena )
+    - implemented pSmallTime and pLongTime
+    - if pSmallTime ended or duel player not killed by enemy, don't count the round, but add +1 to fake round
+    - if pSmallTime expires, just teleport, doesn't slay anyone.
+    - remove player from arena's area when duel's about to start ( it respawns them ).
+    - added cooldown after a duel is over. 
+    - added win/lost message. added client_print for each round showing how many rounds won, lost and current round. 
+    - added native is_user_in_duel
+    - fixed bugs with z < 0 for every map. 
+    - added enum for pAlive
+    - arenas can't be deleted if any arena is being used.
+    - changed stopduelpost when checking for pSavePos and pSavehealth
+    - added revive in the fake_rounds case 
+    - added punish cvar if player stops a duel: 0=do nothing, 1=slay, 2+= increase his cooldown by this.
+    - added static_scoreboard to disable scoreboard kills/deaths on duels.
+    - added cvar kd_public_result to show to everyone ingame who won a duel.
+    - added define to decide whether scoreboard should change or not during the duel. 
+    - added define to decide whether to use .ini or cvars.
+    - fixed pRounds being read instead of pFakeRounds
+    TODO: 
+        - make it available for people in same team (? make it cvar)
+        - it player ends the duel and dies in the first X seconds, respawn? 
+*/
+
+/*
     Credits:
         - mogel: drawing the mins and maxs taken from his walkguardmenu.
         - sTyLa: took the duel model from her server.        
@@ -21,10 +58,10 @@
 
 // --------- Editable Stuff ---------
 
-#define USE_INI              // if defined, uses a .ini in the config file instead of cvars.
-#define STATIC_SCOREBOARD    // whether the scoreboard should show the kills/deaths you do during knife duel
+#define USE_INI              // if defined, uses a .ini in the config file instead of cvars (bind_pcvar_* things don't change cvar directly, so it's better using .ini)
+#define STATIC_SCOREBOARD    // whether the player score should be affected by a duel. uncomment if you want kills/deaths to be updated in the scoreboard.
 #define ADMIN_FLAG          ADMIN_LEVEL_A
-#define MAX_ARENA           4
+#define MAX_ARENA           4   // you can get this bigger if you really want/need.
 #define PREFIX              "^4[KNIFE]^1"
 
 new const szModel[] = "models/knife_duel/duel_platform.mdl";
@@ -68,7 +105,7 @@ new const Float:MIN_LONGTIME  =   30.0;
 new const Float:MAX_SMALLTIME =   60.0;
 new const Float:MIN_SMALLTIME =   3.0;
 
-new const VERSION[] = "1.1.3";
+new const VERSION[] = "1.1.6";
 
 new const DisableAccess = ( 1 << 26 );
 const iWalls = 5;
@@ -220,7 +257,7 @@ public plugin_init()
         bind_pcvar_float( create_cvar( "kd_health_slash", "1" , _, _, true, 0.0, true, 100.0 ), Float:pHealth[ SLASH ] );
         bind_pcvar_float( create_cvar( "kd_health_stab",  "35", _, _, true, 0.0, true, 100.0 ), Float:pHealth[ STAB ]  );
         bind_pcvar_float( create_cvar( "kd_health_both",  "0" , _, _, true, 0.0, true, 100.0 ), Float:pHealth[ BOTH ]  );
-        bind_pcvar_float( create_cvar( "kd_players_distance", "500", _, _, true, MIN_DISTANCE, true, MAX_DISTANCE ), pDistance );
+        bind_pcvar_float( create_cvar( "kd_players_distance", "450", _, _, true, MIN_DISTANCE, true, MAX_DISTANCE ), pDistance );
         bind_pcvar_float( create_cvar( "kd_max_round_time", "10", _, "0 to disable. After this time passed on one round, round will restart.",  true, 0.0, true, MAX_SMALLTIME ), pSmallTime );
         bind_pcvar_float( create_cvar( "kd_max_duel_time", "100", _, "0 to disable. After this time passed on the duel, duel will be stopped.", true, 0.0, true, MAX_LONGTIME  ), pLongTime  );
         bind_pcvar_float( create_cvar( "kd_cooldown", "10", _, _, true, 0.0 ), pNextDuel );
@@ -328,9 +365,9 @@ public client_disconnected( id )
             }
             else if( equal( szToken, "FAKE_ROUNDS" ) )
             {
-                pRounds = str_to_num( szValue );
-                if( pRounds < 0 )
-                    pRounds = 0;
+                pFakeRounds = str_to_num( szValue );
+                if( pFakeRounds < 0 )
+                    pFakeRounds = 0;
                 set_bit( bCheckAll, SFAKE_ROUNDS );
             }
             else if( equal( szToken, "PUNISH" ) )
@@ -428,7 +465,6 @@ public client_disconnected( id )
                     pShow = 1;
                 set_bit( bCheckAll, SPUBLIC_RESULT );
             }
-            //server_print( "%s = %s", szToken, szValue );
         }
         fclose( fp );
 
@@ -436,6 +472,7 @@ public client_disconnected( id )
         {
             if( !check_bit( bCheckAll, i ) )
                 set_fail_state( "Error: Couldn't read all settings from INI ( %d ).", i );
+            
         }
     }
 #endif
@@ -505,7 +542,6 @@ public fw_PlayerKilled_Post( victim, killer )
         else
         {
             set_pev( iArenaEnt[ arena ], pev_rplayer1 + ( 1 - pos ), pev( iArenaEnt[ arena ], pev_rplayer1 + ( 1 - pos ) ) + 1 );
-
 
             new rTotal = pev( iArenaEnt[ arena ], pev_rtotal ) + 1;
             if( rTotal >= pRounds )
@@ -809,7 +845,7 @@ public CmdStopDuel( id )
 
 public CmdMainMenu( id )
 {
-    new menuid = menu_create( "Rush Menu", "MainHandler" );
+    new menuid = menu_create( "Knife Duel Menu", "MainHandler" );
 
     menu_additem( menuid, "Knife Duel" );
     menu_additem( menuid, "Block Player" );
