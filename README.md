@@ -55,3 +55,8 @@ Various Stuff:
   - plugin has "is_user_in_duel" native that returns 1 if player is in duel, 0 otherwise. 
   - either use knife_duels.ini or cvars to set up the plugin.
   - you can choose whether kills/deaths in the duel should affect client's score.
+  
+## Screens
+  [1](https://steamuserimages-a.akamaihd.net/ugc/770613696247526342/B8B3792EEDCBC2990AD2B449035FA13F85157734/)<br>
+  [2](https://steamuserimages-a.akamaihd.net/ugc/770613696247526834/D6E7D2C9789F842EA44047F6067DE41F352ACD9B/)<br>
+  [3](https://steamuserimages-a.akamaihd.net/ugc/770613696247527892/D21F94226FF42FBD6788A5FDBED72475C117DB9F/)<br>
